@@ -83,20 +83,33 @@ class ASTParser:
         if language_name in self._parsers:
             return self._parsers[language_name]
 
+        # 1. Try modular package first (e.g. tree_sitter_python)
         module_name = LANGUAGE_MODULES.get(language_name)
-        if not module_name:
-            raise ValueError(f"Unsupported language: {language_name}")
+        if module_name:
+            try:
+                mod = importlib.import_module(module_name)
+                if language_name == "tsx":
+                    lang_func = getattr(mod, "language_tsx", getattr(mod, "language"))
+                else:
+                    lang_func = getattr(mod, "language")
 
-        mod = importlib.import_module(module_name)
-        if language_name == "tsx":
-            lang_func = getattr(mod, "language_tsx", getattr(mod, "language"))
-        else:
-            lang_func = getattr(mod, "language")
+                language = Language(lang_func())
+                parser = Parser(language)
+                self._parsers[language_name] = parser
+                return parser
+            except (ImportError, AttributeError):
+                pass
 
-        language = Language(lang_func())
-        parser = Parser(language)
-        self._parsers[language_name] = parser
-        return parser
+        # 2. Fallback to tree_sitter_language_pack
+        try:
+            from tree_sitter_language_pack import get_parser
+            parser = get_parser(language_name)
+            self._parsers[language_name] = parser
+            return parser
+        except Exception:
+            pass
+
+        raise ValueError(f"Could not load Tree-sitter parser for language '{language_name}'. Ensure 'tree-sitter-{language_name}' is installed.")
 
     def detect_language(self, file_path: str | Path) -> Optional[str]:
         """Detects the Tree-sitter language name based on file extension."""
